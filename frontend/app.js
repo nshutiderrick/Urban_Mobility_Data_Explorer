@@ -39,7 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
         attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(map);
 
-    const monthFilter = document.getElementById('monthFilter');
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
     const boroughFilter = document.getElementById('boroughFilter');
     const boroughDropdown = document.getElementById('boroughDropdown');
     const boroughTrigger = document.getElementById('boroughTrigger');
@@ -54,21 +55,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const emptyState = document.getElementById('emptyState');
     const boroughPanel = document.getElementById('boroughPanel');
     const closeBoroughPanelBtn = document.getElementById('closeBoroughPanelBtn');
+    const chartLoadingOverlay = document.getElementById('chartLoadingOverlay');
 
     let geoLayer;
     let allZones = [];
     let gapZones = [];
     let activeFilter = 'all';
     let zonesByBorough = {}; // Cache zones by borough for submenus
+    let activeTab = 'rush-hour'; // Default tab
 
     // Fetch Summary Stats with Filters
     async function updateSummary() {
         console.log("📊 Fetching Diagnostic Summary...");
         try {
-            const month = monthFilter.value;
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
             const borough = boroughFilter.value;
             const url = new URL(`${API_BASE}/trips/summary`);
-            if (month !== 'all') url.searchParams.append('month', month);
+            if (startDate) url.searchParams.append('start_date', startDate);
+            if (endDate) url.searchParams.append('end_date', endDate);
             if (borough !== 'all') url.searchParams.append('borough', borough);
 
             const resp = await fetch(url);
@@ -244,20 +249,92 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Fetch and Render Chart
-    async function loadChart() {
+    async function loadHourlyChart() {
+        chartLoadingOverlay.classList.remove('hidden');
         try {
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
             const borough = boroughFilter.value;
-            const url = new URL(`${API_BASE}/trips/revenue`);
+
+            const url = new URL(`${API_BASE}/trips/hourly`);
+            if (startDate) url.searchParams.append('start_date', startDate);
+            if (endDate) url.searchParams.append('end_date', endDate);
             if (borough !== 'all') url.searchParams.append('borough', borough);
 
             const resp = await fetch(url);
             const data = await resp.json();
 
-            const chartStatus = Chart.getChart("revenueChart");
+            const chartStatus = Chart.getChart("mainChart");
             if (chartStatus !== undefined) chartStatus.destroy();
 
-            const ctx = document.getElementById('revenueChart').getContext('2d');
+            const ctx = document.getElementById('mainChart').getContext('2d');
+
+            // Peak hour identification (Rush Hour)
+            const hours = Object.keys(data);
+            const counts = Object.values(data).map(d => d.trips);
+            const maxVal = Math.max(...counts);
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: hours.map(h => `${h}:00`),
+                    datasets: [{
+                        label: 'Trip Volume',
+                        data: counts,
+                        backgroundColor: counts.map(c => c === maxVal && c > 0 ? '#f0883e' : '#58a6ff'),
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => {
+                                    const hour = context.label.split(':')[0];
+                                    const speed = data[hour].speed;
+                                    return [`Trips: ${context.raw}`, `Avg Speed: ${speed} MPH` + (speed < 5 && context.raw > 0 ? ' (⚠️ Congested)' : '')];
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Error loading hourly chart:', err);
+        } finally {
+            chartLoadingOverlay.classList.add('hidden');
+        }
+    }
+
+    async function loadChart() {
+        if (activeTab === 'rush-hour') {
+            await loadHourlyChart();
+            return;
+        }
+
+        chartLoadingOverlay.classList.remove('hidden');
+        try {
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+            const borough = boroughFilter.value;
+            const url = new URL(`${API_BASE}/trips/revenue`);
+            if (startDate) url.searchParams.append('start_date', startDate);
+            if (endDate) url.searchParams.append('end_date', endDate);
+            if (borough !== 'all') url.searchParams.append('borough', borough);
+
+            const resp = await fetch(url);
+            const data = await resp.json();
+
+            const chartStatus = Chart.getChart("mainChart");
+            if (chartStatus !== undefined) chartStatus.destroy();
+
+            const ctx = document.getElementById('mainChart').getContext('2d');
             new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -280,11 +357,28 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } catch (err) {
             console.error('Error loading chart:', err);
+        } finally {
+            chartLoadingOverlay.classList.add('hidden');
         }
     }
 
     // Event Listeners
-    monthFilter.addEventListener('change', () => {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activeTab = btn.dataset.tab;
+            loadChart();
+        });
+    });
+
+    startDateInput.addEventListener('change', () => {
+        updateSummary();
+        loadChart();
+    });
+
+    endDateInput.addEventListener('change', () => {
         updateSummary();
         loadChart();
     });

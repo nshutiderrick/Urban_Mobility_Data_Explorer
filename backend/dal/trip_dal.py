@@ -40,7 +40,8 @@ class TripDAL:
                 'payment_type_id', 'fare_amount', 'extra', 'mta_tax', 'tip_amount', 
                 'pickup_location_id', 'dropoff_location_id', 'tolls_amount', 
                 'improvement_surcharge', 'total_amount', 'congestion_surcharge', 
-                'speed_mph', 'fare_per_mile', 'trip_duration_seconds'
+                'speed_mph', 'fare_per_mile', 'trip_duration_seconds',
+                'pickup_date', 'pickup_hour'
             ]
             
             # Force columns to match and handle missing
@@ -50,7 +51,8 @@ class TripDAL:
             conn.commit()
             print(f"Successfully inserted {len(df_final)} rows into 'trips' table.")
         except Exception as e:
-            print(f"Error inserting trips: {e}")
+            print(f"❌ Error inserting trips: {str(e)}")
+            print(f"DF Columns: {trips_df.columns.tolist()}")
             # print(trips_df.columns) # Helpful for debugging
         finally:
             conn.close()

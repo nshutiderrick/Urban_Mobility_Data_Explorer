@@ -84,7 +84,8 @@ def get_trip_summary():
     try:
         from backend.logic.aggregators import TripAggregator
         filters = {
-            "month": request.args.get('month', 'all'),
+            "start_date": request.args.get('start_date'),
+            "end_date": request.args.get('end_date'),
             "borough": request.args.get('borough', 'all')
         }
         
@@ -105,6 +106,21 @@ def get_congestion_report():
         # Call super-aggregator - it's fast now!
         full_data = TripAggregator.get_global_summary({"borough": "all"})
         return jsonify(full_data['congestion'])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/trips/hourly', methods=['GET'])
+def get_hourly_activity():
+    """Returns trip volume and speed by hour for Rush Hour analysis"""
+    try:
+        from backend.logic.aggregators import TripAggregator
+        filters = {
+            "start_date": request.args.get('start_date'),
+            "end_date": request.args.get('end_date'),
+            "borough": request.args.get('borough', 'all')
+        }
+        data = TripAggregator.get_hourly_stats(filters)
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

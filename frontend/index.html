@@ -47,10 +47,11 @@
     <main>
         <section class="controls">
             <div class="filter-group">
-                <label for="monthFilter">Month</label>
-                <select id="monthFilter">
-                    <option value="1">January 2019</option>
-                </select>
+                <label>Date Range</label>
+                <div class="date-inputs">
+                    <input type="date" id="startDate" value="2019-01-01">
+                    <input type="date" id="endDate" value="2019-01-31">
+                </div>
             </div>
             <div class="filter-group">
                 <label for="boroughFilter">Borough</label>
@@ -171,9 +172,19 @@
                     </div>
                 </div>
             </div>
-            <div class="card chart-card">
-                <h3>Congestion Index by Borough</h3>
-                <canvas id="revenueChart"></canvas>
+            <div class="card chart-card tabbed-card" id="chartCard">
+                <div class="card-header">
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="rush-hour">Rush Hour Analysis</button>
+                        <button class="tab-btn" data-tab="congestion">Congestion Index</button>
+                    </div>
+                </div>
+                <div class="tab-content">
+                    <div id="chartLoadingOverlay" class="loading-overlay hidden">
+                        <div class="spinner"></div>
+                    </div>
+                    <canvas id="mainChart"></canvas>
+                </div>
             </div>
         </section>
 

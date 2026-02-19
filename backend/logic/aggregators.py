@@ -20,25 +20,40 @@ class TripAggregator:
             loc_to_borough = {r[0]: r[1] for r in cur.fetchall()}
             
             selected_borough = filters.get('borough') if filters.get('borough') != 'all' else None
+            start_date = filters.get('start_date')
+            end_date = filters.get('end_date')
             
             # 2. Base Query: Group by location_id FIRST (This avoids 1M join operations!)
             # We calculate all raw sums and counts by zone
-            query = """
+            where_clauses = []
+            params = []
+            
+            if start_date:
+                where_clauses.append("pickup_date >= ?")
+                params.append(start_date)
+            if end_date:
+                where_clauses.append("pickup_date <= ?")
+                params.append(end_date)
+                
+            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            
+            query = f"""
                 SELECT 
                     pickup_location_id,
                     COUNT(*) as trip_count,
-                    SUM(fare_amount) as total_fare,
-                    SUM(total_amount) as total_rev,
-                    SUM(trip_distance) as total_dist,
-                    SUM(speed_mph) as total_speed,
-                    SUM(CASE WHEN speed_mph > 80 OR (trip_distance < 1 AND fare_amount > 100) THEN 1 ELSE 0 END) as anomalies,
-                    SUM(CASE WHEN speed_mph <= 80 THEN speed_mph ELSE 0 END) as f_speed_sum,
-                    SUM(CASE WHEN speed_mph <= 80 THEN 1 ELSE 0 END) as f_speed_count
+                    COALESCE(SUM(fare_amount), 0) as total_fare,
+                    COALESCE(SUM(total_amount), 0) as total_rev,
+                    COALESCE(SUM(trip_distance), 0) as total_dist,
+                    COALESCE(SUM(speed_mph), 0) as total_speed,
+                    COALESCE(SUM(CASE WHEN speed_mph > 80 OR (trip_distance < 1 AND fare_amount > 100) THEN 1 ELSE 0 END), 0) as anomalies,
+                    COALESCE(SUM(CASE WHEN speed_mph <= 80 THEN speed_mph ELSE 0 END), 0) as f_speed_sum,
+                    COALESCE(SUM(CASE WHEN speed_mph <= 80 THEN 1 ELSE 0 END), 0) as f_speed_count
                 FROM trips
+                {where_str}
                 GROUP BY 1
             """
             
-            cur.execute(query)
+            cur.execute(query, params)
             rows = cur.fetchall()
             
             # 3. Post-Aggregation in Python (Extremely fast for 263 rows)
@@ -126,6 +141,51 @@ class TripAggregator:
             """)
             choke_points = cur.fetchone()[0] or 0
             return {"activeChokePoints": choke_points}
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_hourly_stats(filters):
+        """Calculates volume and speed per hour for Rush Hour identification"""
+        db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'database', 'taxi_data.db')
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        try:
+            start_date = filters.get('start_date')
+            end_date = filters.get('end_date')
+            
+            where_clauses = []
+            params = []
+            
+            if start_date:
+                where_clauses.append("pickup_date >= ?")
+                params.append(start_date)
+            if end_date:
+                where_clauses.append("pickup_date <= ?")
+                params.append(end_date)
+            
+            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            
+            query = f"""
+                SELECT 
+                    pickup_hour,
+                    COUNT(*) as trip_count,
+                    AVG(speed_mph) as avg_speed
+                FROM trips
+                {where_str}
+                GROUP BY pickup_hour
+                ORDER BY pickup_hour ASC
+            """
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            
+            # Ensure all 24 hours are present
+            hourly_data = {h: {"trips": 0, "speed": 0} for h in range(24)}
+            for r in rows:
+                hour, count, speed = r
+                hourly_data[hour] = {"trips": count, "speed": round(speed or 0, 2)}
+            
+            return hourly_data
         finally:
             conn.close()
 

@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS trips (
     speed_mph REAL,
     fare_per_mile REAL,
     trip_duration_seconds INTEGER,
+    pickup_date TEXT, -- YYYY-MM-DD for fast date filtering
+    pickup_hour INTEGER, -- 0-23 for rush hour analysis
     
     -- Metadata
     store_and_fwd_flag BOOLEAN,
@@ -82,3 +84,5 @@ CREATE INDEX IF NOT EXISTS idx_trips_payment_type ON trips(payment_type_id);
 CREATE INDEX IF NOT EXISTS idx_trips_speed ON trips(speed_mph);
 CREATE INDEX IF NOT EXISTS idx_trips_total_amount ON trips(total_amount);
 CREATE INDEX IF NOT EXISTS idx_time_dim_hour ON time_dim(hour);
+CREATE INDEX IF NOT EXISTS idx_trips_pickup_date ON trips(pickup_date);
+CREATE INDEX IF NOT EXISTS idx_trips_pickup_hour ON trips(pickup_hour);
