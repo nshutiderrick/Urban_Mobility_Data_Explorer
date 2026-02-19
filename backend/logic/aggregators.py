@@ -38,6 +38,9 @@ class TripAggregator:
             if end_date:
                 where_clauses.append("pickup_date <= ?")
                 params.append(end_date)
+            if filters.get('zone_id'):
+                where_clauses.append("pickup_location_id = ?")
+                params.append(filters['zone_id'])
                 
             where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
             

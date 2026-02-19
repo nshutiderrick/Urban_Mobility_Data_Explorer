@@ -94,7 +94,8 @@ def get_trip_summary():
         filters = {
             "start_date": request.args.get('start_date'),
             "end_date": request.args.get('end_date'),
-            "borough": request.args.get('borough', 'all')
+            "borough": request.args.get('borough', 'all'),
+            "zone_id": request.args.get('zone_id')
         }
         
         # Cache Logic: Valid for 30 seconds
@@ -233,8 +234,20 @@ def get_zone_stats(zone_id):
         
         zone_name, borough = zone_info
         
-        # Get pickup statistics
-        cur.execute("""
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        where_clauses = ["pickup_location_id = ?"]
+        params = [zone_id]
+        
+        if start_date:
+            where_clauses.append("pickup_date >= ?")
+            params.append(start_date)
+        if end_date:
+            where_clauses.append("pickup_date <= ?")
+            params.append(end_date)
+        
+        where_str = f"WHERE {' AND '.join(where_clauses)}"
+        cur.execute(f"""
             SELECT 
                 COUNT(*) as trip_count,
                 AVG(trip_distance) as avg_distance,
@@ -243,31 +256,49 @@ def get_zone_stats(zone_id):
                 AVG(trip_duration_seconds) as avg_duration,
                 SUM(passenger_count) as total_passengers
             FROM trips
-            WHERE pickup_location_id = ?
-        """, (zone_id,))
+            {where_str}
+        """, params)
         
         pickup_stats = cur.fetchone()
         
-        # Get dropoff statistics
-        cur.execute("""
+        do_where_clauses = ["dropoff_location_id = ?"]
+        do_params = [zone_id]
+        if start_date:
+            do_where_clauses.append("pickup_date >= ?")
+            do_params.append(start_date)
+        if end_date:
+            do_where_clauses.append("pickup_date <= ?")
+            do_params.append(end_date)
+        do_where_str = f"WHERE {' AND '.join(do_where_clauses)}"
+
+        cur.execute(f"""
             SELECT 
                 COUNT(*) as dropoff_count,
                 SUM(passenger_count) as dropoff_passengers
             FROM trips
-            WHERE dropoff_location_id = ?
-        """, (zone_id,))
+            {do_where_str}
+        """, do_params)
         
         dropoff_res = cur.fetchone()
         dropoff_count = dropoff_res[0] or 0
         dropoff_passengers = dropoff_res[1] or 0
         
-        # Get borough average for comparison
-        cur.execute("""
+        b_where_clauses = ["z.borough = ?"]
+        b_params = [borough]
+        if start_date:
+            b_where_clauses.append("t.pickup_date >= ?")
+            b_params.append(start_date)
+        if end_date:
+            b_where_clauses.append("t.pickup_date <= ?")
+            b_params.append(end_date)
+        b_where_str = f"WHERE {' AND '.join(b_where_clauses)}"
+
+        cur.execute(f"""
             SELECT AVG(t.speed_mph) as borough_avg_speed
             FROM trips t
             JOIN taxi_zones z ON t.pickup_location_id = z.location_id
-            WHERE z.borough = ?
-        """, (borough,))
+            {b_where_str}
+        """, b_params)
         
         borough_avg = cur.fetchone()[0] or 0
         

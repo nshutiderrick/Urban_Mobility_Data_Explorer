@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeFilter = 'all';
     let zonesByBorough = {}; // Cache zones by borough for submenus
     let activeTab = 'rush-hour'; // Default tab
+    let activeZoneId = null; // Track selected zone for top metrics
 
     // Debounce Helper
     function debounce(func, wait) {
@@ -78,22 +79,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Fetch Summary Stats with Filters
-    async function updateSummary() {
+    async function updateSummary(zoneId = null) {
         try {
+            activeZoneId = zoneId || activeZoneId; // Persist if passed, otherwise use current
             const startDate = startDateInput.value;
             const endDate = endDateInput.value;
             const borough = boroughFilter.value;
+
             const url = new URL(`${API_BASE}/trips/summary`);
             if (startDate) url.searchParams.append('start_date', startDate);
             if (endDate) url.searchParams.append('end_date', endDate);
-            if (borough !== 'all') url.searchParams.append('borough', borough);
+
+            // Priority: Zone ID > Borough Filter
+            if (activeZoneId) {
+                url.searchParams.append('zone_id', activeZoneId);
+            } else if (borough !== 'all') {
+                url.searchParams.append('borough', borough);
+            }
 
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`API Error: ${resp.status}`);
 
             const data = await resp.json();
 
-            // Update new Persona-specific labels and remove loading state
+            // Update metrics
             const healthElem = document.getElementById('systemHealth');
             const speedElem = document.getElementById('avgMobilitySpeed');
             const anomaliesElem = document.getElementById('totalAnomalies');
@@ -180,9 +189,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         hoverTooltip.classList.remove('visible');
                     });
 
-                    // Click to open details panel
+                    // Click to open details panel and update summary context
                     layer.on('click', () => {
-                        openDetailsPanel(feature.properties);
+                        const props = feature.properties;
+                        selectedBoroughSpan.textContent = props.zone;
+                        boroughFilter.value = 'all';
+                        updateSummary(props.id);
+                        openDetailsPanel(props);
                     });
 
                     layer.bindPopup(`<b>${feature.properties.zone}</b><br>${feature.properties.borough}`);
@@ -440,7 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
 
                     updateMapFilter();
-                    updateSummary();
+                    updateSummary(zoneId);
                     loadChart();
                     zoomToZone(zoneId);
 
@@ -512,7 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 document.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
 
                                 updateMapFilter();
-                                updateSummary();
+                                updateSummary(zoneId);
                                 loadChart();
                                 zoomToZone(parseInt(zoneId));
                             }
@@ -545,6 +558,7 @@ document.addEventListener('DOMContentLoaded', () => {
             boroughDropdown.classList.remove('open');
 
             // Update data
+            activeZoneId = null; // Clear zone context when borough changes
             updateSummary();
             loadChart();
             updateMapFilter();
@@ -655,8 +669,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Fetch detailed statistics
         try {
-            const apiUrl = `${API_BASE}/zones/${properties.id}/stats`;
-            console.log('📡 Fetching stats from:', apiUrl);
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+            const apiUrl = new URL(`${API_BASE}/zones/${properties.id}/stats`);
+            if (startDate) apiUrl.searchParams.append('start_date', startDate);
+            if (endDate) apiUrl.searchParams.append('end_date', endDate);
+
+            console.log('📡 Fetching stats from:', apiUrl.toString());
 
             const resp = await fetch(apiUrl);
             if (!resp.ok) {
@@ -981,6 +1000,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 { label: 'Revenue', val: `$${data.summary.totalRevenue.toLocaleString()}` },
                 { label: 'Avg Speed', val: `${data.summary.avgSpeed} MPH` },
                 { label: 'Avg Distance', val: `${data.summary.avgDistance} MI` },
+                { label: 'Detected Noise', val: data.summary.totalAnomalies.toLocaleString() },
                 { label: 'Health Score', val: `${data.summary.systemHealth}%` },
                 { label: 'Choke Points', val: data.summary.activeChokePoints }
             ];
@@ -1026,6 +1046,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 `).join('');
             } else {
                 gapsList.innerHTML = "<p>No critical coverage gaps detected in this scope.</p>";
+            }
+
+            // Populate Noise Analysis
+            const noiseList = document.getElementById('reportNoise');
+            const noiseItems = [];
+            if (data.summary.anomalyDetails.speed > 0) {
+                noiseItems.push({
+                    title: `Speed Violations (${data.summary.anomalyDetails.speed})`,
+                    desc: "Trips detected with speeds exceeding 80 MPH, indicating potential data logging errors or severe speed violations."
+                });
+            }
+            if (data.summary.anomalyDetails.fare > 0) {
+                noiseItems.push({
+                    title: `Suspicious Fare/Distance (${data.summary.anomalyDetails.fare})`,
+                    desc: "Short trips (< 1 mi) with disproportionately high fares (> $100), suggesting possible meter malfunction or incorrect data entry."
+                });
+            }
+
+            if (noiseItems.length > 0) {
+                noiseList.innerHTML = noiseItems.map(n => `
+                    <div class="report-stat-card" style="margin-bottom: 0.5rem; border-left: 4px solid #cf222e;">
+                        <strong>${n.title}</strong>
+                        <p style="margin:0; font-size:0.85rem; color:#57606a;">${n.desc}</p>
+                    </div>
+                `).join('');
+            } else {
+                noiseList.innerHTML = "<p>No significant data noise detected in this scope.</p>";
             }
 
             // Show Modal
