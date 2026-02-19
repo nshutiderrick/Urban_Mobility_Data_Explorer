@@ -25,6 +25,14 @@ tokens = {} # In-memory token storage (resets on restart)
 def get_db_path():
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'database', 'taxi_data.db')
 
+# Performance Cache
+import time
+summary_cache = {
+    "data": None,
+    "timestamp": 0,
+    "filters": None
+}
+
 @app.route('/api/auth/signup', methods=['POST'])
 def signup():
     data = request.get_json()
@@ -89,12 +97,26 @@ def get_trip_summary():
             "borough": request.args.get('borough', 'all')
         }
         
+        # Cache Logic: Valid for 30 seconds
+        now = time.time()
+        if summary_cache["data"] and (now - summary_cache["timestamp"] < 30) and (summary_cache["filters"] == filters):
+            # Caching successful
+            return jsonify(summary_cache["data"])
+
         # Super-Aggregator pass
         full_data = TripAggregator.get_global_summary(filters)
-        health_data = TripAggregator.get_health_metrics(filters)
         
         # Merge summary with extra health metrics (choke points)
-        return jsonify({**full_data['summary'], **health_data})
+        response_data = full_data['summary']
+        
+        # Update Cache
+        summary_cache.update({
+            "data": response_data,
+            "timestamp": now,
+            "filters": filters
+        })
+        
+        return jsonify(response_data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -126,10 +148,15 @@ def get_hourly_activity():
 
 @app.route('/api/trips/gaps', methods=['GET'])
 def get_coverage_gaps():
-    """Returns top 5 underserved zones"""
+    """Returns top 5 underserved zones (Filtered)"""
     try:
         from backend.logic.aggregators import TripAggregator
-        data = TripAggregator.get_coverage_gaps()
+        filters = {
+            "start_date": request.args.get('start_date'),
+            "end_date": request.args.get('end_date'),
+            "borough": request.args.get('borough', 'all')
+        }
+        data = TripAggregator.get_coverage_gaps(filters)
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -139,7 +166,26 @@ def get_borough_stats(borough):
     """Returns aggregated stats for a specific borough"""
     try:
         from backend.logic.aggregators import TripAggregator
-        data = TripAggregator.get_borough_stats(borough)
+        filters = {
+            "start_date": request.args.get('start_date'),
+            "end_date": request.args.get('end_date')
+        }
+        data = TripAggregator.get_borough_stats(borough, filters)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/report', methods=['GET'])
+def get_report():
+    """Returns detailed diagnostic report data"""
+    try:
+        from backend.logic.aggregators import TripAggregator
+        filters = {
+            "start_date": request.args.get('start_date'),
+            "end_date": request.args.get('end_date'),
+            "borough": request.args.get('borough', 'all')
+        }
+        data = TripAggregator.get_detailed_report(filters)
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

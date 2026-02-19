@@ -64,9 +64,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let zonesByBorough = {}; // Cache zones by borough for submenus
     let activeTab = 'rush-hour'; // Default tab
 
+    // Debounce Helper
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
     // Fetch Summary Stats with Filters
     async function updateSummary() {
-        console.log("📊 Fetching Diagnostic Summary...");
         try {
             const startDate = startDateInput.value;
             const endDate = endDateInput.value;
@@ -80,7 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!resp.ok) throw new Error(`API Error: ${resp.status}`);
 
             const data = await resp.json();
-            console.log("Diagnostic Data:", data);
 
             // Update new Persona-specific labels and remove loading state
             const healthElem = document.getElementById('systemHealth');
@@ -91,12 +102,19 @@ document.addEventListener('DOMContentLoaded', () => {
             speedElem.textContent = `${data.avgMobilitySpeed || 0} MPH`;
             anomaliesElem.textContent = (data.totalAnomalies || 0).toLocaleString();
 
+            // Populate Anomaly Tooltip
+            if (data.anomalyDetails) {
+                document.getElementById('speedAnomCount').textContent = data.anomalyDetails.speed.toLocaleString();
+                document.getElementById('fareAnomCount').textContent = data.anomalyDetails.fare.toLocaleString();
+            }
+
             [healthElem, speedElem, anomaliesElem].forEach(el => {
-                el.parentElement.classList.remove('loading');
+                const card = el.closest('.stat-card');
+                if (card) card.classList.remove('loading');
             });
 
             // Add a "Diagnostic Status" check
-            const healthCard = healthElem.parentElement;
+            const healthCard = healthElem.closest('.stat-card');
             if (data.systemHealth < 95) {
                 healthCard.style.color = '#ff7b72'; // Warning red
             } else {
@@ -373,15 +391,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    startDateInput.addEventListener('change', () => {
-        updateSummary();
-        loadChart();
-    });
+    const refreshDashboard = debounce(() => {
+        const p1 = updateSummary();
+        const p2 = loadChart();
+        Promise.all([p1, p2]).then(() => console.log("✨ Dashboard Refresh Complete"));
+    }, 400);
 
-    endDateInput.addEventListener('change', () => {
-        updateSummary();
-        loadChart();
-    });
+    startDateInput.addEventListener('change', refreshDashboard);
+    endDateInput.addEventListener('change', refreshDashboard);
 
     boroughFilter.addEventListener('change', () => {
         updateSummary();
@@ -802,7 +819,11 @@ document.addEventListener('DOMContentLoaded', () => {
         boroughPanel.classList.add('open');
 
         try {
-            const resp = await fetch(`${API_BASE}/boroughs/${boroughName}/stats`);
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const url = `${API_BASE}/boroughs/${boroughName}/stats?start_date=${startDate}&end_date=${endDate}`;
+
+            const resp = await fetch(url);
             if (!resp.ok) throw new Error('API Failure');
             const stats = await resp.json();
 
@@ -921,6 +942,112 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // --- Diagnostic Report Logic ---
+    const generateReportBtn = document.getElementById('generateReportBtn');
+    const reportModal = document.getElementById('reportModal');
+    const closeReportBtn = document.getElementById('closeReportBtn');
+    const printReportBtn = document.getElementById('printReportBtn');
+
+    async function generateReport() {
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        const borough = boroughFilter.value;
+
+        const url = new URL(`${API_BASE}/report`);
+        if (startDate) url.searchParams.append('start_date', startDate);
+        if (endDate) url.searchParams.append('end_date', endDate);
+        if (borough !== 'all') url.searchParams.append('borough', borough);
+
+        try {
+            generateReportBtn.disabled = true;
+            generateReportBtn.textContent = "Processing...";
+
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error("Report failed");
+            const data = await resp.json();
+
+            // Populate Metadata
+            document.getElementById('reportMetadata').innerHTML = `
+                Scope: <strong>${data.metadata.scope}</strong> | 
+                Period: <strong>${data.metadata.period}</strong> | 
+                Generated: <strong>${data.metadata.generatedAt}</strong>
+                ${data.metadata.boroughMetadata && data.metadata.boroughMetadata.zoneCount ? ` | Total Zones: <strong>${data.metadata.boroughMetadata.zoneCount}</strong>` : ''}
+            `;
+            // Populate Summary
+            const summaryGrid = document.getElementById('reportSummary');
+            const metrics = [
+                { label: 'Total Trips', val: data.summary.totalTrips.toLocaleString() },
+                { label: 'Revenue', val: `$${data.summary.totalRevenue.toLocaleString()}` },
+                { label: 'Avg Speed', val: `${data.summary.avgSpeed} MPH` },
+                { label: 'Avg Distance', val: `${data.summary.avgDistance} MI` },
+                { label: 'Health Score', val: `${data.summary.systemHealth}%` },
+                { label: 'Choke Points', val: data.summary.activeChokePoints }
+            ];
+
+            // Add Passenger Distribution and Total Zones if borough metadata exists
+            if (data.metadata.boroughMetadata && data.metadata.boroughMetadata.pickupPassengers !== undefined) {
+                metrics.push({ label: 'Total Zones', val: data.metadata.boroughMetadata.zoneCount });
+                metrics.push({ label: 'PU Passengers', val: data.metadata.boroughMetadata.pickupPassengers.toLocaleString() });
+                metrics.push({ label: 'DO Passengers', val: data.metadata.boroughMetadata.dropoffPassengers.toLocaleString() });
+            }
+            summaryGrid.innerHTML = metrics.map(m => `
+                <div class="report-stat-card">
+                    <small>${m.label}</small>
+                    <strong>${m.val}</strong>
+                </div>
+            `).join('');
+
+            // Populate Top Zones
+            const tbody = document.querySelector('#reportTopZones tbody');
+            tbody.innerHTML = data.topZones.map(z => `
+                <tr>
+                    <td><strong>${z.zone}</strong></td>
+                    <td>${z.borough}</td>
+                    <td>${z.trips.toLocaleString()}</td>
+                    <td>${z.speed} MPH</td>
+                </tr>
+            `).join('');
+
+            // Populate Gaps (Use full list if borough metadata for better detail)
+            const gapsList = document.getElementById('reportGaps');
+            const displayGaps = (data.metadata.boroughMetadata && data.metadata.boroughMetadata.underservedZones)
+                ? data.metadata.boroughMetadata.underservedZones
+                : data.coverageGaps;
+
+            if (displayGaps && displayGaps.length > 0) {
+                gapsList.innerHTML = displayGaps.map(g => `
+                    <div class="report-stat-card" style="margin-bottom: 0.5rem; border-left: 4px solid #f0883e;">
+                        <strong>${g.zone} (${g.borough || data.metadata.scope})</strong>
+                        <p style="margin:0; font-size:0.85rem; color:#57606a;">
+                            Critical service gap detected. ${g.ratio ? `Drop-offs exceed pick-ups by ${g.ratio}x.` : 'Underserved area.'}
+                        </p>
+                    </div>
+                `).join('');
+            } else {
+                gapsList.innerHTML = "<p>No critical coverage gaps detected in this scope.</p>";
+            }
+
+            // Show Modal
+            reportModal.classList.add('open');
+
+        } catch (err) {
+            console.error("Report generation error:", err);
+            alert("Failed to generate report. Please check server connection.");
+        } finally {
+            generateReportBtn.disabled = false;
+            generateReportBtn.textContent = "Generate Report";
+        }
+    }
+
+    generateReportBtn.addEventListener('click', generateReport);
+    closeReportBtn.addEventListener('click', () => reportModal.classList.remove('open'));
+    printReportBtn.addEventListener('click', () => window.print());
+
+    // Close on overlay click
+    reportModal.addEventListener('click', (e) => {
+        if (e.target === reportModal) reportModal.classList.remove('open');
+    });
 
     // Init order: loadZones needs to finish before updateMapFilter works
     updateSummary();
