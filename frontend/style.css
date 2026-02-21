@@ -360,7 +360,7 @@ select {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    z-index: 1000;
+    z-index: 5000;
     display: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     /* Submenus are now always inline, so we can safely scroll the whole menu */
@@ -869,7 +869,7 @@ h3 {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
-    z-index: 1000;
+    z-index: 400;
     min-width: 180px;
 }
 
