@@ -87,20 +87,46 @@
 
         .auth-button {
             width: 100%;
-            padding: 0.75rem;
-            background: #3b82f6;
+            padding: 0.8rem;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 60%, #4f46e5 100%);
             color: white;
             border: none;
-            border-radius: 0.5rem;
+            border-radius: 0.625rem;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: 700;
+            letter-spacing: 0.025em;
             cursor: pointer;
-            transition: background 0.2s;
             margin-top: 1rem;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35);
+        }
+
+        .auth-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -75%;
+            width: 50%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.18);
+            transform: skewX(-20deg);
+            transition: left 0.5s ease;
+        }
+
+        .auth-button:hover::before {
+            left: 130%;
         }
 
         .auth-button:hover {
-            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(59, 130, 246, 0.5);
+        }
+
+        .auth-button:active {
+            transform: translateY(0);
+            box-shadow: 0 3px 10px rgba(59, 130, 246, 0.3);
         }
 
         .auth-footer {
@@ -110,14 +136,32 @@
             color: #94a3b8;
         }
 
-        .auth-footer a {
-            color: #3b82f6;
+        .signup-btn {
+            display: inline-block;
+            margin-top: 0.75rem;
+            width: 100%;
+            padding: 0.7rem;
+            background: transparent;
+            color: #60a5fa;
+            border: 1.5px solid rgba(96, 165, 250, 0.45);
+            border-radius: 0.625rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            cursor: pointer;
             text-decoration: none;
-            font-weight: 500;
+            text-align: center;
+            box-sizing: border-box;
+            transition: all 0.25s ease;
+            backdrop-filter: blur(4px);
         }
 
-        .auth-footer a:hover {
-            text-decoration: underline;
+        .signup-btn:hover {
+            background: rgba(96, 165, 250, 0.1);
+            border-color: #60a5fa;
+            color: #93c5fd;
+            box-shadow: 0 0 16px rgba(96, 165, 250, 0.2);
+            transform: translateY(-1px);
         }
 
         .error-message {
@@ -152,7 +196,8 @@
             <button type="submit" class="auth-button">Sign In</button>
         </form>
         <div class="auth-footer">
-            Don't have an account? <a href="signup.html">Create one</a>
+            Don't have an account?<br>
+            <a href="signup.html" class="signup-btn">Create Account</a>
         </div>
     </div>
 
