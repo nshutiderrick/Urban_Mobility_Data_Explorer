@@ -291,6 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (startDate) url.searchParams.append('start_date', startDate);
             if (endDate) url.searchParams.append('end_date', endDate);
             if (borough !== 'all') url.searchParams.append('borough', borough);
+        if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
 
             const resp = await fetch(url);
             const data = await resp.json();
@@ -358,6 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (startDate) url.searchParams.append('start_date', startDate);
             if (endDate) url.searchParams.append('end_date', endDate);
             if (borough !== 'all') url.searchParams.append('borough', borough);
+        if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
 
             const resp = await fetch(url);
             const data = await resp.json();
@@ -977,6 +979,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (startDate) url.searchParams.append('start_date', startDate);
         if (endDate) url.searchParams.append('end_date', endDate);
         if (borough !== 'all') url.searchParams.append('borough', borough);
+        if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
 
         try {
             generateReportBtn.disabled = true;
@@ -1005,6 +1008,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 { label: 'Choke Points', val: data.summary.activeChokePoints }
             ];
 
+            if (data.metadata.isZoneReport) {
+                metrics.push({ label: 'Zone Speed', val: `${data.metadata.comparison.zoneSpeed} MPH` });
+                metrics.push({ label: 'Borough Speed', val: `${data.metadata.comparison.boroughSpeed} MPH` });
+                metrics.push({ label: 'Var vs Borough', val: `${data.metadata.comparison.diff}%` });
+            }
+
             // Add Passenger Distribution and Total Zones if borough metadata exists
             if (data.metadata.boroughMetadata && data.metadata.boroughMetadata.pickupPassengers !== undefined) {
                 metrics.push({ label: 'Total Zones', val: data.metadata.boroughMetadata.zoneCount });
@@ -1019,6 +1028,14 @@ document.addEventListener('DOMContentLoaded', () => {
             `).join('');
 
             // Populate Top Zones
+            // Populate Top Zones
+            const reportTableTitleArea = document.querySelector('#reportTopZones');
+            if (reportTableTitleArea) {
+                const h4 = reportTableTitleArea.previousElementSibling;
+                if (h4 && h4.tagName === 'H4') {
+                    h4.textContent = data.metadata.isZoneReport ? "Top Destination Zones" : "Top Zones by Trip Volume";
+                }
+            }
             const tbody = document.querySelector('#reportTopZones tbody');
             tbody.innerHTML = data.topZones.map(z => `
                 <tr>

@@ -268,11 +268,81 @@ class TripAggregator:
                 params.append(filters['end_date'])
             
             borough = filters.get('borough')
-            if borough and borough != 'all':
+            zone_id = filters.get('zone_id')
+
+            if zone_id:
+                where_clauses.append("pickup_location_id = ?")
+                params.append(zone_id)
+            elif borough and borough != 'all':
                 where_clauses.append("pickup_location_id IN (SELECT location_id FROM taxi_zones WHERE borough = ?)")
                 params.append(borough)
 
             where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+            # --- ZONE SPECIFIC SCOPE ---
+            if zone_id:
+                # 1. Get Zone Metadata
+                cur.execute("SELECT zone, borough FROM taxi_zones WHERE location_id = ?", (zone_id,))
+                zone_info = cur.fetchone()
+                zone_name, b_name = zone_info if zone_info else ("Unknown Zone", borough)
+                
+                # 2. Top Destinations (rather than general top zones)
+                # We filter trips STARTING in this zone and find where they go
+                query = f"""
+                    SELECT z_dest.zone, z_dest.borough, COUNT(*) as trip_count, AVG(t.speed_mph) as speed
+                    FROM trips t
+                    JOIN taxi_zones z_dest ON t.dropoff_location_id = z_dest.location_id
+                    {where_str}
+                    GROUP BY 1, 2
+                    ORDER BY trip_count DESC
+                    LIMIT 5
+                """
+                cur.execute(query, params)
+                top_zones = [{"zone": r[0], "borough": r[1], "trips": r[2], "speed": round(r[3], 1)} for r in cur.fetchall()]
+                
+                # 3. Localized comparison data
+                # We reuse get_zone_stats logic but wrapped for the report
+                cur.execute(f"SELECT AVG(speed_mph) FROM trips {where_str}", params)
+                zone_avg_speed = cur.fetchone()[0] or 0
+                
+                # Comparison against borough baseline (for the same period)
+                b_where = ["z.borough = ?"]
+                b_params = [b_name]
+                if filters.get('start_date'): b_where.append("pickup_date >= ?"); b_params.append(filters['start_date'])
+                if filters.get('end_date'): b_where.append("pickup_date <= ?"); b_params.append(filters['end_date'])
+                
+                cur.execute(f"""
+                    SELECT AVG(speed_mph) FROM trips t 
+                    JOIN taxi_zones z ON t.pickup_location_id = z.location_id 
+                    WHERE {" AND ".join(b_where)}
+                """, b_params)
+                borough_baseline = cur.fetchone()[0] or 0
+                
+                # Check if zone is a gap
+                gaps = TripAggregator.get_coverage_gaps(filters)
+                is_gap = any(g['zone'] == zone_name for g in gaps)
+
+                return {
+                    "metadata": {
+                        "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "scope": f"{b_name} / {zone_name}",
+                        "parentBorough": b_name,
+                        "period": f"{filters.get('start_date', 'All')} to {filters.get('end_date', 'All')}",
+                        "isZoneReport": True,
+                        "isGap": is_gap,
+                        "comparison": {
+                            "zoneSpeed": round(zone_avg_speed, 1),
+                            "boroughSpeed": round(borough_baseline, 1),
+                            "diff": round(((zone_avg_speed / borough_baseline * 100) - 100) if borough_baseline else 0, 1)
+                        }
+                    },
+                    "summary": summary_data['summary'],
+                    "topZones": top_zones, # These are DESTINATIONS
+                    "coverageGaps": gaps if is_gap else [] # Only show if this zone is a gap
+                }
+
+
+            # --- BOROUGH/CITYWIDE SCOPE ---
             
             query = f"""
                 SELECT z.zone, z.borough, COUNT(*) as trip_count, AVG(speed_mph) as speed

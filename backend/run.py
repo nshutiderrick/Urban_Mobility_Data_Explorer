@@ -140,7 +140,8 @@ def get_hourly_activity():
         filters = {
             "start_date": request.args.get('start_date'),
             "end_date": request.args.get('end_date'),
-            "borough": request.args.get('borough', 'all')
+            "borough": request.args.get('borough', 'all'),
+            "zone_id": request.args.get('zone_id')
         }
         data = TripAggregator.get_hourly_stats(filters)
         return jsonify(data)
@@ -155,7 +156,8 @@ def get_coverage_gaps():
         filters = {
             "start_date": request.args.get('start_date'),
             "end_date": request.args.get('end_date'),
-            "borough": request.args.get('borough', 'all')
+            "borough": request.args.get('borough', 'all'),
+            "zone_id": request.args.get('zone_id')
         }
         data = TripAggregator.get_coverage_gaps(filters)
         return jsonify(data)
@@ -184,7 +186,8 @@ def get_report():
         filters = {
             "start_date": request.args.get('start_date'),
             "end_date": request.args.get('end_date'),
-            "borough": request.args.get('borough', 'all')
+            "borough": request.args.get('borough', 'all'),
+            "zone_id": request.args.get('zone_id')
         }
         data = TripAggregator.get_detailed_report(filters)
         return jsonify(data)
