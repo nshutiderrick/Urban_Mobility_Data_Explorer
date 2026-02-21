@@ -42,7 +42,7 @@ class TripAggregator:
                 where_clauses.append("pickup_location_id = ?")
                 params.append(filters['zone_id'])
                 
-            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else "" if where_clauses else ""
             
             query = f"""
                 SELECT 
@@ -51,8 +51,9 @@ class TripAggregator:
                     COALESCE(SUM(fare_amount), 0) as total_fare,
                     COALESCE(SUM(total_amount), 0) as total_rev,
                     COALESCE(SUM(trip_distance), 0) as total_dist,
-                    COALESCE(SUM(speed_mph), 0) as total_speed,
-                    COALESCE(SUM(CASE WHEN speed_mph > 80 THEN 1 ELSE 0 END), 0) as speed_anomalies,
+                COALESCE(SUM(speed_mph), 0) as total_speed,
+                COALESCE(SUM(passenger_count), 0) as total_pass,
+                COALESCE(SUM(CASE WHEN speed_mph > 80 THEN 1 ELSE 0 END), 0) as speed_anomalies,
                     COALESCE(SUM(CASE WHEN trip_distance < 1 AND fare_amount > 100 THEN 1 ELSE 0 END), 0) as fare_anomalies,
                     COALESCE(SUM(CASE WHEN speed_mph <= 80 THEN speed_mph ELSE 0 END), 0) as f_speed_sum,
                     COALESCE(SUM(CASE WHEN speed_mph <= 80 THEN 1 ELSE 0 END), 0) as f_speed_count
@@ -67,13 +68,13 @@ class TripAggregator:
             # 3. Post-Aggregation in Python (Extremely fast for 263 rows)
             borough_data = {}
             for r in rows:
-                loc_id, count, fare, rev, dist, speed, speed_anom, fare_anom, f_sum, f_count = r
+                loc_id, count, fare, rev, dist, speed, pass_count, speed_anom, fare_anom, f_sum, f_count = r
                 b_name = loc_to_borough.get(loc_id, 'Other')
                 
                 if b_name not in borough_data:
                     borough_data[b_name] = {
                         "trips": 0, "fare": 0, "rev": 0, "dist": 0, 
-                        "speed": 0, "speed_anom": 0, "fare_anom": 0, "f_sum": 0, "f_count": 0
+                        "speed": 0, "pass": 0, "speed_anom": 0, "fare_anom": 0, "f_sum": 0, "f_count": 0
                     }
                 
                 s = borough_data[b_name]
@@ -82,6 +83,7 @@ class TripAggregator:
                 s['rev'] += rev
                 s['dist'] += dist
                 s['speed'] += speed
+                s['pass'] += pass_count
                 s['speed_anom'] += speed_anom
                 s['fare_anom'] += fare_anom
                 s['f_sum'] += f_sum
@@ -93,12 +95,13 @@ class TripAggregator:
             global_rev = 0
             global_dist = 0
             global_speed_sum = 0
+            global_passengers = 0
             global_speed_anom = 0
             global_fare_anom = 0
             global_f_sum = 0
             global_f_count = 0
             choke_points = 0
-            
+        
             congestion_index = {}
 
             for b_name, s in borough_data.items():
@@ -111,6 +114,7 @@ class TripAggregator:
                     global_rev += s['rev']
                     global_dist += s['dist']
                     global_speed_sum += s['speed']
+                    global_passengers += s['pass']
                     global_speed_anom += s['speed_anom']
                     global_fare_anom += s['fare_anom']
                     global_f_sum += s['f_sum']
@@ -128,6 +132,7 @@ class TripAggregator:
             return {
                 "summary": {
                     "totalTrips": global_trips,
+                    "totalPassengers": global_passengers,
                     "avgFare": round(global_fare / max(global_trips, 1), 2) if global_trips > 0 else 0,
                     "totalRevenue": round(global_rev, 2),
                     "avgDistance": round(global_dist / max(global_trips, 1), 2) if global_trips > 0 else 0,
@@ -157,9 +162,12 @@ class TripAggregator:
         try:
             start_date = filters.get('start_date')
             end_date = filters.get('end_date')
+            borough = filters.get('borough')
+            zone_id = filters.get('zone_id')
             
             where_clauses = []
             params = []
+            join_str = ""
             
             if start_date:
                 where_clauses.append("pickup_date >= ?")
@@ -168,7 +176,16 @@ class TripAggregator:
                 where_clauses.append("pickup_date <= ?")
                 params.append(end_date)
             
-            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            # Spatial Filtering
+            if zone_id:
+                where_clauses.append("pickup_location_id = ?")
+                params.append(zone_id)
+            elif borough and borough != 'all':
+                join_str = "JOIN taxi_zones z ON trips.pickup_location_id = z.location_id"
+                where_clauses.append("z.borough = ?")
+                params.append(borough)
+
+            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else "" if where_clauses else ""
             
             query = f"""
                 SELECT 
@@ -176,6 +193,7 @@ class TripAggregator:
                     COUNT(*) as trip_count,
                     AVG(speed_mph) as avg_speed
                 FROM trips
+                {join_str}
                 {where_str}
                 GROUP BY pickup_hour
                 ORDER BY pickup_hour ASC
@@ -277,7 +295,7 @@ class TripAggregator:
                 where_clauses.append("pickup_location_id IN (SELECT location_id FROM taxi_zones WHERE borough = ?)")
                 params.append(borough)
 
-            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else "" if where_clauses else ""
 
             # --- ZONE SPECIFIC SCOPE ---
             if zone_id:
@@ -322,6 +340,10 @@ class TripAggregator:
                 gaps = TripAggregator.get_coverage_gaps(filters)
                 is_gap = any(g['zone'] == zone_name for g in gaps)
 
+                # Rush Hour Analysis (Zone specific)
+                hourly_stats = TripAggregator.get_hourly_stats(filters)
+                peak_hour = max(hourly_stats.items(), key=lambda x: x[1]['trips']) if hourly_stats else (0, {"trips": 0, "speed": 0})
+
                 return {
                     "metadata": {
                         "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -338,7 +360,14 @@ class TripAggregator:
                     },
                     "summary": summary_data['summary'],
                     "topZones": top_zones, # These are DESTINATIONS
-                    "coverageGaps": gaps if is_gap else [] # Only show if this zone is a gap
+                    "coverageGaps": gaps if is_gap else [], # Only show if this zone is a gap
+                    "rushHour": {
+                        "hour": peak_hour[0],
+                        "trips": peak_hour[1]['trips'],
+                        "avgSpeed": peak_hour[1]['speed'],
+                        "congestionImpact": None, # Disabled for Zone
+                        "trend": hourly_stats
+                    }
                 }
 
 
@@ -359,7 +388,16 @@ class TripAggregator:
             # 3. Get Coverage Gaps for this specific scope
             gaps = TripAggregator.get_coverage_gaps(filters)
             
-            # 4. Integrate extra Borough metadata if applicable
+            # 4. Rush Hour Analysis
+            hourly_stats = TripAggregator.get_hourly_stats(filters)
+            peak_hour = max(hourly_stats.items(), key=lambda x: x[1]['trips']) if hourly_stats else (0, {"trips": 0, "speed": 0})
+            
+            # Congestion Calculation (Only for Citywide/Borough scope per user preference)
+            congestion_impact = None
+            if summary_data['summary']['avgSpeed'] > 0:
+                congestion_impact = round(((peak_hour[1]['speed'] / summary_data['summary']['avgSpeed'] * 100) - 100), 1)
+
+            # 5. Integrate extra Borough metadata if applicable
             borough_data = {}
             if borough and borough != 'all':
                 b_stats = TripAggregator.get_borough_stats(borough, filters)
@@ -380,11 +418,19 @@ class TripAggregator:
                     "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "scope": borough if borough != 'all' else "Citywide",
                     "period": f"{filters.get('start_date', 'All')} to {filters.get('end_date', 'All')}",
-                    "boroughMetadata": borough_data
+                    "boroughMetadata": borough_data,
+                    "isCitywide": borough == 'all'
                 },
                 "summary": summary_data['summary'],
                 "topZones": top_zones,
-                "coverageGaps": gaps
+                "coverageGaps": gaps,
+                "rushHour": {
+                    "hour": peak_hour[0],
+                    "trips": peak_hour[1]['trips'],
+                    "avgSpeed": peak_hour[1]['speed'],
+                    "congestionImpact": congestion_impact if borough == 'all' else None,
+                    "trend": hourly_stats
+                }
             }
         finally:
             conn.close()
@@ -396,8 +442,11 @@ class TripAggregator:
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         
-        where_clauses = ["pickup_location_id IN (SELECT location_id FROM taxi_zones WHERE borough = ?)"]
-        params = [borough]
+        is_citywide = borough == "all"
+        where_clauses = []
+        if not is_citywide:
+            where_clauses.append("pickup_location_id IN (SELECT location_id FROM taxi_zones WHERE borough = ?)")
+        params = [borough] if not is_citywide else []
         
         if filters:
             if filters.get('start_date'):
@@ -407,7 +456,7 @@ class TripAggregator:
                 where_clauses.append("pickup_date <= ?")
                 params.append(filters['end_date'])
         
-        where_str = f"WHERE {' AND '.join(where_clauses)}"
+        where_str = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         
         try:
             # 1. Main Stats
@@ -425,8 +474,10 @@ class TripAggregator:
             total_trips, avg_speed, avg_distance, pickup_passengers = res[:4]
 
             # 2. Inbound Passengers (Drop-offs)
-            where_do = ["dropoff_location_id IN (SELECT location_id FROM taxi_zones WHERE borough = ?)"]
-            params_do = [borough]
+            where_do = []
+            if not is_citywide:
+                where_do.append("dropoff_location_id IN (SELECT location_id FROM taxi_zones WHERE borough = ?)")
+            params_do = [borough] if not is_citywide else []
             if filters:
                 if filters.get('start_date'):
                     where_do.append("pickup_date >= ?")
@@ -435,7 +486,7 @@ class TripAggregator:
                     where_do.append("pickup_date <= ?")
                     params_do.append(filters['end_date'])
             
-            where_do_str = f"WHERE {' AND '.join(where_do)}"
+            where_do_str = f"WHERE {' AND '.join(where_do)}" if where_do else ""
             cur.execute(f"SELECT SUM(passenger_count) FROM trips {where_do_str}", params_do)
             dropoff_passengers = cur.fetchone()[0] or 0
 
@@ -470,19 +521,22 @@ class TripAggregator:
                 FROM DO
                 LEFT JOIN PU ON DO.loc = PU.loc
                 JOIN taxi_zones z ON DO.loc = z.location_id
-                WHERE z.borough = ? AND (DO.cnt * 1.0 / NULLIF(PU.cnt, 0)) > 2.0
+                WHERE {"z.borough = ?" if not is_citywide else "1=1"} AND (DO.cnt * 1.0 / NULLIF(PU.cnt, 0)) > 2.0
                 ORDER BY (DO.cnt * 1.0 / NULLIF(PU.cnt, 0)) DESC
             """
-            cur.execute(query_4, date_params + date_params + [borough])
+            final_params_4 = date_params + date_params
+            if not is_citywide: final_params_4.append(borough)
+            cur.execute(query_4, final_params_4)
             underserved_results = [{"zone": r[0], "id": r[1]} for r in cur.fetchall()]
             underserved_count = len(underserved_results)
 
             # 5. Total Zones in this Borough
-            cur.execute("SELECT COUNT(*) FROM taxi_zones WHERE borough = ?", (borough,))
+            if is_citywide: cur.execute("SELECT COUNT(*) FROM taxi_zones")
+            else: cur.execute("SELECT COUNT(*) FROM taxi_zones WHERE borough = ?", (borough,))
             zone_count = cur.fetchone()[0] or 0
 
             return {
-                "borough": borough,
+                "borough": "Citywide" if is_citywide else borough,
                 "totalTrips": total_trips or 0,
                 "avgSpeed": round(avg_speed, 1) if avg_speed else 0,
                 "avgDistance": round(avg_distance, 2) if avg_distance else 0,

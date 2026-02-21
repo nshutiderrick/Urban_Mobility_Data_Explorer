@@ -20,6 +20,12 @@ body {
     color: var(--text-color);
 }
 
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+}
+
 header {
     padding: 2rem 3rem;
     border-bottom: 1px solid var(--border-color);
@@ -357,6 +363,11 @@ select {
     z-index: 1000;
     display: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    /* Submenus are now always inline, so we can safely scroll the whole menu */
+    max-height: 80vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    touch-action: pan-y;
 }
 
 .custom-dropdown.open .dropdown-menu {
@@ -386,34 +397,84 @@ select {
     flex: 1;
 }
 
-.dropdown-item svg {
+.submenu-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    min-height: 32px;
+    margin: -0.5rem -0.5rem -0.5rem 0;
+    padding: 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s, opacity 0.2s;
+    opacity: 0.5;
+    flex-shrink: 0;
+}
+
+.dropdown-item:hover .submenu-toggle,
+.submenu-open .submenu-toggle {
+    opacity: 1;
+}
+
+.submenu-toggle:hover {
+    background: rgba(88, 166, 255, 0.15);
+    opacity: 1;
+}
+
+.submenu-toggle svg {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s;
+    pointer-events: none;
+}
+
+.submenu-open .submenu-toggle svg {
+    transform: rotate(90deg);
+}
+
+/* Legacy: keep dropdown-item svg styles for any remaining non-wrapped svgs */
+.dropdown-item>svg {
     width: 12px;
     height: 12px;
     opacity: 0.5;
+    padding: 0.5rem;
+    margin: -0.5rem;
+    transition: transform 0.2s, opacity 0.2s;
+    cursor: pointer;
 }
 
-/* Submenu */
+/* Submenu — always accordion/inline style (no fly-out) */
 .dropdown-item.has-submenu {
     position: relative;
+    flex-wrap: wrap;
 }
 
 .submenu {
-    position: absolute;
-    left: 100%;
-    top: 0;
-    min-width: 250px;
-    max-width: 350px;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    max-height: 400px;
+    position: static;
+    width: 100%;
+    min-width: unset;
+    max-width: none;
+    background: rgba(255, 255, 255, 0.03);
+    border: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0;
+    max-height: 300px;
     overflow-y: auto;
     display: none;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: none;
     z-index: 1001;
+    flex-basis: 100%;
 }
 
-.dropdown-item.has-submenu:hover .submenu {
+/* Show submenu when toggled open via click */
+.dropdown-item.submenu-open {
+    flex-direction: column;
+    align-items: stretch;
+    padding-bottom: 0;
+}
+
+.dropdown-item.submenu-open .submenu {
     display: block;
 }
 
@@ -531,35 +592,18 @@ body.focus-mode main {
     padding: 0;
 }
 
-body.focus-mode .controls {
-    position: fixed;
-    bottom: 2rem;
-    right: 2rem;
-    z-index: 2000;
-    background: rgba(22, 27, 34, 0.95);
-    padding: 1.5rem;
-    border-radius: 12px;
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--accent-color);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-    margin-bottom: 0;
-}
 
-body.focus-mode .dropdown-menu {
-    top: auto;
-    bottom: calc(100% + 4px);
-    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
-}
-
-body.focus-mode .submenu {
-    top: auto;
-    bottom: 0;
-}
-
+/* Dropdowns and Search Results in focus mode should follow default downward flow since panel is at top */
+body.focus-mode .dropdown-menu,
 body.focus-mode .search-results {
-    top: auto;
-    bottom: calc(100% + 4px);
-    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.3);
+    top: calc(100% + 4px);
+    bottom: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Submenu items are indented to visually show hierarchy */
+.submenu-item {
+    padding-left: 2.25rem;
 }
 
 body.focus-mode .dashboard-grid {
@@ -645,10 +689,12 @@ h3 {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    max-height: 300px;
+    max-height: 250px;
     overflow-y: auto;
     z-index: 1000;
     display: none;
+    scrollbar-width: thin;
+    touch-action: pan-y;
 }
 
 .search-results.active {
@@ -716,6 +762,7 @@ h3 {
 .button-group {
     display: flex;
     align-items: flex-end;
+    gap: 0.75rem;
 }
 
 .btn-primary {
@@ -747,6 +794,36 @@ h3 {
     width: 16px;
     height: 16px;
 }
+
+.btn-secondary {
+    background-color: rgba(88, 166, 255, 0.05);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: inherit;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 40px;
+}
+
+.btn-secondary:hover {
+    background-color: rgba(88, 166, 255, 0.1);
+    border-color: var(--accent-color);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(88, 166, 255, 0.1);
+}
+
+.btn-secondary .btn-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--accent-color);
+}
+
 
 /* Filter Chips */
 .filter-chips {
@@ -1225,5 +1302,328 @@ body.focus-mode .map-legend {
 }
 
 body.focus-mode .details-panel.open {
-    z-index: 2200;
+    z-index: 2500;
+}
+
+/* Fix table overflow */
+.report-section {
+    overflow-x: auto;
+}
+
+/* --- RESPONSIVE ADAPTATIONS --- */
+
+/* Tablet Viewports */
+@media (max-width: 1024px) {
+    header {
+        padding: 1.5rem 2rem;
+    }
+
+    .stats-bar {
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .details-panel {
+        width: 400px;
+    }
+}
+
+/* Mobile Viewports */
+@media (max-width: 768px) {
+    header {
+        padding: 1rem;
+    }
+
+    .header-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .user-info {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    h1 {
+        font-size: 1.25rem;
+    }
+
+    .stats-bar {
+        gap: 1rem;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stat-card {
+        min-width: 0;
+    }
+
+    .stat-card p {
+        font-size: 1.2rem;
+    }
+
+    main {
+        padding: 1rem;
+    }
+
+    .controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+    }
+
+    .search-group {
+        max-width: none;
+    }
+
+    .date-inputs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    #map {
+        height: 350px;
+    }
+
+    .details-panel,
+    .borough-panel {
+        width: 100% !important;
+        right: -100% !important;
+    }
+
+    .details-panel.open,
+    .borough-panel.open {
+        right: 0 !important;
+    }
+
+    /* Report Modal Mobile */
+    .report-paper {
+        width: 95%;
+        height: 95vh;
+        border-radius: 8px;
+    }
+
+    .report-header {
+        padding: 1rem;
+    }
+
+    .report-body {
+        padding: 1rem;
+    }
+
+    .report-summary-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+
+    /* Fix table overflow */
+    .report-section {
+        overflow-x: auto;
+    }
+}
+
+/* Extra Small Devices */
+@media (max-width: 480px) {
+    .stats-bar {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .date-inputs {
+        grid-template-columns: 1fr;
+    }
+
+    .borough-buttons {
+        gap: 0.5rem;
+    }
+
+    .borough-btn {
+        flex: 1;
+        text-align: center;
+        padding: 0.5rem 0.25rem;
+        font-size: 0.75rem;
+    }
+}
+
+/* Mobile Filter Toggle Button */
+.mobile-filter-toggle {
+    display: none;
+    width: 100%;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 0.75rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.mobile-filter-toggle:hover {
+    border-color: var(--accent-color);
+    background: rgba(88, 166, 255, 0.05);
+}
+
+.mobile-filter-toggle svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (max-width: 768px) {
+    .mobile-filter-toggle {
+        display: flex;
+    }
+
+    .controls {
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+        animation: slideDown 0.3s ease-out;
+    }
+
+    .controls.open {
+        display: flex !important;
+    }
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===== Toggle Arrow ===== */
+.mobile-filter-toggle .toggle-arrow {
+    width: 18px;
+    height: 18px;
+    transition: transform 0.3s ease;
+    flex-shrink: 0;
+}
+
+.mobile-filter-toggle.open .toggle-arrow {
+    transform: rotate(180deg);
+}
+
+/* ===== Filter Panel Wrapper ===== */
+/* Default: transparent wrapper, children flow normally */
+.filter-panel {
+    display: contents;
+}
+
+/* ===== Focus Mode: Compact floating filter panel (bottom-right) ===== */
+body.focus-mode .filter-panel {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 1.25rem;
+    left: 4.5rem;
+    right: auto;
+    bottom: unset;
+    z-index: 2400;
+    width: 260px;
+    max-width: calc(100vw - 10rem);
+}
+
+/* Controls card (hidden by default in focus mode) */
+body.focus-mode .filter-panel .controls {
+    display: none;
+    flex-direction: column;
+    position: static !important;
+    gap: 1rem;
+    background: rgba(13, 17, 23, 0.97);
+    padding: 1.25rem;
+    border-radius: 0 0 12px 12px;
+    border: 1px solid var(--accent-color);
+    border-top: none;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    margin-bottom: 0;
+    animation: slideDown 0.25s ease-out;
+    overflow: visible;
+}
+
+body.focus-mode .filter-panel .controls.open {
+    display: flex !important;
+}
+
+/* Toggle button — always visible at top of panel in focus mode */
+body.focus-mode .filter-panel .mobile-filter-toggle {
+    display: flex !important;
+    position: static !important;
+    width: 100% !important;
+    min-width: unset;
+    left: unset;
+    right: unset;
+    bottom: unset;
+    background: rgba(13, 17, 23, 0.97) !important;
+    border: 1px solid var(--accent-color) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    margin-bottom: 0 !important;
+    padding: 0.8rem 1rem !important;
+    justify-content: space-between !important;
+}
+
+/* When controls are open, toggle loses its bottom radius to connect with the panel */
+body.focus-mode .filter-panel .mobile-filter-toggle.open {
+    border-radius: 12px 12px 0 0 !important;
+    border-bottom-color: rgba(88, 166, 255, 0.3) !important;
+}
+
+/* No Data Alert */
+.no-data-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(240, 136, 62, 0.1);
+    color: #f0883e;
+    border: 1px solid rgba(240, 136, 62, 0.3);
+    padding: 0.75rem 1.25rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    animation: slideDown 0.3s ease-out;
+}
+
+.no-data-alert.hidden {
+    display: none;
+}
+
+.no-data-alert svg {
+    flex-shrink: 0;
+}
+
+
+/* Ensure action buttons fit within the narrow panel in focus mode */
+body.focus-mode .filter-panel .button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+}
+
+body.focus-mode .filter-panel .button-group button {
+    width: 100%;
+    justify-content: center;
 }

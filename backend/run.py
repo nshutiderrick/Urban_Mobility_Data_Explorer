@@ -1,7 +1,7 @@
 # backend\run.py
 # Main Backend Server: Flask application that defines all API endpoints for dashboard data, authentication, and health checks.
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import os
 import sys
@@ -17,6 +17,19 @@ from backend.security.auth_logic import AuthLogic
 
 app = Flask(__name__)
 CORS(app) # Enable CORS for frontend integration
+
+# Serve Frontend
+@app.route('/')
+def index():
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend'), 'index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend'), 'dashboard.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend'), path)
 
 # For simplicity in this demo, we'll use a secret key and a simple token storage
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'nyc-taxi-secret-key')
@@ -342,4 +355,4 @@ def get_revenue():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)

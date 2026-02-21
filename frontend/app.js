@@ -7,8 +7,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Check if user is logged in
     const token = localStorage.getItem('auth_token');
-    if (!token && !window.location.pathname.endsWith('login.html') && !window.location.pathname.endsWith('signup.html')) {
-        window.location.href = 'login.html';
+    const isLoginPage = window.location.pathname.endsWith('index.html') || window.location.pathname === '/';
+    const isSignupPage = window.location.pathname.endsWith('signup.html');
+
+    if (!token && !isLoginPage && !isSignupPage) {
+        window.location.href = 'index.html';
         return;
     }
 
@@ -29,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             localStorage.removeItem('auth_token');
             localStorage.removeItem('user_email');
-            window.location.href = 'login.html';
+            window.location.href = 'index.html';
         });
     }
 
@@ -56,6 +59,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const boroughPanel = document.getElementById('boroughPanel');
     const closeBoroughPanelBtn = document.getElementById('closeBoroughPanelBtn');
     const chartLoadingOverlay = document.getElementById('chartLoadingOverlay');
+    const openInsightsBtn = document.getElementById('openInsightsBtn');
+    const mobileFilterToggle = document.getElementById('mobileFilterToggle');
+    const controlsSection = document.querySelector('.controls');
+
+    // Prevent map interactions when using filter controls
+    if (boroughMenu) L.DomEvent.disableScrollPropagation(boroughMenu);
+    if (searchResults) L.DomEvent.disableScrollPropagation(searchResults);
+    if (controlsSection) {
+        L.DomEvent.disableScrollPropagation(controlsSection);
+        L.DomEvent.disableClickPropagation(controlsSection);
+    }
+
+    // Mobile Filter Toggle
+    if (mobileFilterToggle && controlsSection) {
+        mobileFilterToggle.addEventListener('click', () => {
+            controlsSection.classList.toggle('open');
+            mobileFilterToggle.classList.toggle('open');
+            const isExpanded = controlsSection.classList.contains('open');
+            mobileFilterToggle.querySelector('span').textContent = isExpanded ? 'Hide Filters' : 'Filter Options';
+        });
+    }
 
     let geoLayer;
     let allZones = [];
@@ -64,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let zonesByBorough = {}; // Cache zones by borough for submenus
     let activeTab = 'rush-hour'; // Default tab
     let activeZoneId = null; // Track selected zone for top metrics
+    let reportChartInstance = null; // Store chart instance for the diagnostic report modal
+    let isUnderservedHighlighted = false; // Track if highlights are currently active
 
     // Debounce Helper
     function debounce(func, wait) {
@@ -106,10 +132,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const healthElem = document.getElementById('systemHealth');
             const speedElem = document.getElementById('avgMobilitySpeed');
             const anomaliesElem = document.getElementById('totalAnomalies');
+            const tripsElem = document.getElementById('totalTripsHeader');
+            const passengersElem = document.getElementById('totalPassengersHeader');
 
             healthElem.textContent = `${data.systemHealth || 0}%`;
             speedElem.textContent = `${data.avgMobilitySpeed || 0} MPH`;
             anomaliesElem.textContent = (data.totalAnomalies || 0).toLocaleString();
+            tripsElem.textContent = (data.totalTrips || 0).toLocaleString();
+            passengersElem.textContent = (data.totalPassengers || 0).toLocaleString();
+
+            // Handle No-Data feedback
+            const noDataAlert = document.getElementById('noDataAlert');
+            if (data.totalTrips === 0) {
+                noDataAlert.classList.remove('hidden');
+            } else {
+                noDataAlert.classList.add('hidden');
+            }
 
             // Populate Anomaly Tooltip
             if (data.anomalyDetails) {
@@ -117,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('fareAnomCount').textContent = data.anomalyDetails.fare.toLocaleString();
             }
 
-            [healthElem, speedElem, anomaliesElem].forEach(el => {
+            [healthElem, speedElem, anomaliesElem, tripsElem, passengersElem].forEach(el => {
                 const card = el.closest('.stat-card');
                 if (card) card.classList.remove('loading');
             });
@@ -132,6 +170,27 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('Error fetching summary:', err);
         }
+    }
+
+    // Manual Panel Toggle Logic
+    if (openInsightsBtn) {
+        openInsightsBtn.addEventListener('click', () => {
+            if (activeZoneId && allZones && allZones.features) {
+                // If a zone is active, try to find it and open that specific panel
+                const zoneFeature = allZones.features.find(f => parseInt(f.properties.id) === parseInt(activeZoneId));
+                if (zoneFeature) {
+                    openDetailsPanel(zoneFeature.properties);
+                } else {
+                    // Fallback to borough if zone not found (unlikely)
+                    const borough = boroughFilter.value === 'all' ? null : boroughFilter.value;
+                    openBoroughPanel(borough);
+                }
+            } else {
+                // No zone active, open borough panel
+                const borough = boroughFilter.value === 'all' ? null : boroughFilter.value;
+                openBoroughPanel(borough);
+            }
+        });
     }
 
     // Fetch and Render Zones
@@ -168,6 +227,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 onEachFeature: (feature, layer) => {
                     // Hover tooltip
                     layer.on('mouseover', (e) => {
+                        // Suppress tooltip if this zone is already selected and panel is open
+                        if (detailsPanel.classList.contains('open') && String(activeZoneId) === String(feature.properties.id)) {
+                            hoverTooltip.classList.remove('visible');
+                            return;
+                        }
+
                         const props = feature.properties;
                         const gap = gapZones.find(g => g.zone === props.zone);
                         const status = gap ? '⚠️ Underserved' : '✓ Normal Coverage';
@@ -182,7 +247,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
 
                     layer.on('mousemove', (e) => {
-                        updateTooltipPosition(e.originalEvent);
+                        if (hoverTooltip.classList.contains('visible')) {
+                            updateTooltipPosition(e.originalEvent);
+                        }
                     });
 
                     layer.on('mouseout', () => {
@@ -191,10 +258,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Click to open details panel and update summary context
                     layer.on('click', () => {
+                        hoverTooltip.classList.remove('visible'); // Dismiss tooltip on click
                         const props = feature.properties;
                         selectedBoroughSpan.textContent = props.zone;
                         boroughFilter.value = 'all';
+                        zoneSearch.value = ''; // Clear search when clicking map
                         updateSummary(props.id);
+                        loadChart(); // Synchronize Rush Hour Chart
                         openDetailsPanel(props);
                     });
 
@@ -215,26 +285,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadCoverageGaps() {
         try {
-            const resp = await fetch(`${API_BASE}/trips/gaps`);
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
+            const borough = boroughFilter.value;
+
+            const url = new URL(`${API_BASE}/trips/gaps`);
+            if (startDate) url.searchParams.append('start_date', startDate);
+            if (endDate) url.searchParams.append('end_date', endDate);
+            if (borough !== 'all') url.searchParams.append('borough', borough);
+            if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
+
+            const resp = await fetch(url);
             const gaps = await resp.json();
-            console.log("Economic Gaps:", gaps);
+            console.log("Economic Gaps Updated:", gaps);
             gapZones = gaps;
 
-            // Find zones on map and highlight in orange
-            geoLayer.eachLayer(layer => {
-                const zoneName = layer.feature.properties.zone;
-                const gap = gaps.find(g => g.zone === zoneName);
-                if (gap) {
-                    layer.setStyle({
-                        fillColor: '#f0883e',
-                        fillOpacity: 0.6,
-                        color: '#f0883e',
-                        weight: 2
-                    });
-                    layer.bindPopup(`⚠️ <b>Underserved: ${zoneName}</b><br>Drop-offs are ${gap.ratio}x Pick-ups.`);
-                }
-            });
-        } catch (err) { console.error(err); }
+            // Trigger map refresh to apply new gap highlights
+            updateMapFilter();
+        } catch (err) { console.error("Error loading coverage gaps:", err); }
     }
 
     // Update Map Styling and View based on Filter
@@ -291,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (startDate) url.searchParams.append('start_date', startDate);
             if (endDate) url.searchParams.append('end_date', endDate);
             if (borough !== 'all') url.searchParams.append('borough', borough);
-        if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
+            if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
 
             const resp = await fetch(url);
             const data = await resp.json();
@@ -359,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (startDate) url.searchParams.append('start_date', startDate);
             if (endDate) url.searchParams.append('end_date', endDate);
             if (borough !== 'all') url.searchParams.append('borough', borough);
-        if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
+            if (activeZoneId) url.searchParams.append('zone_id', activeZoneId);
 
             const resp = await fetch(url);
             const data = await resp.json();
@@ -409,7 +477,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const refreshDashboard = debounce(() => {
         const p1 = updateSummary();
         const p2 = loadChart();
-        Promise.all([p1, p2]).then(() => console.log("✨ Dashboard Refresh Complete"));
+        const p3 = loadCoverageGaps();
+        Promise.all([p1, p2, p3]).then(() => console.log("✨ Dashboard Refresh Complete"));
     }, 400);
 
     startDateInput.addEventListener('change', refreshDashboard);
@@ -418,6 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
     boroughFilter.addEventListener('change', () => {
         updateSummary();
         loadChart();
+        loadCoverageGaps();
         updateMapFilter();
     });
 
@@ -451,7 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Reset borough filter to 'all' to ensure the searched zone is visible
                     boroughFilter.value = 'all';
-                    selectedBoroughSpan.textContent = 'All Boroughs';
+                    selectedBoroughSpan.textContent = item.querySelector('strong').textContent;
                     document.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
 
                     updateMapFilter();
@@ -495,12 +565,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const submenu = item.querySelector('.submenu');
 
         item.addEventListener('mouseenter', () => {
-            // Populate submenu if not already done
-            if (!submenu.hasChildNodes()) {
+            // Populate submenu if not already done, or if it only has the "Loading/No zones" placeholder
+            if (!submenu.hasChildNodes() || submenu.querySelector('.submenu-loading')) {
+                L.DomEvent.disableScrollPropagation(submenu);
                 const zones = allZones.filter(z => z.borough === boroughName);
 
                 if (zones.length === 0) {
-                    submenu.innerHTML = '<div class="submenu-loading">No zones found</div>';
+                    // Only show "No zones found" if allZones is actually populated and no match was found
+                    if (allZones.length > 0) {
+                        submenu.innerHTML = '<div class="submenu-loading">No zones found</div>';
+                    } else {
+                        // Still waiting for data
+                        submenu.innerHTML = '<div class="submenu-loading">Loading zones...</div>';
+                    }
                 } else {
                     submenu.innerHTML = zones.map(zone =>
                         `<div class="submenu-item" data-zone-id="${zone.id}" data-zone-name="${zone.zone}">
@@ -541,6 +618,27 @@ document.addEventListener('DOMContentLoaded', () => {
     // Handle borough selection (clicking on borough name, not zone)
     document.querySelectorAll('.dropdown-item').forEach(item => {
         item.addEventListener('click', (e) => {
+            // If clicking the submenu toggle area (the arrow wrapper), toggle the submenu instead of selecting borough
+            if (e.target.closest('.submenu-toggle')) {
+                e.stopPropagation();
+
+                const isOpen = item.classList.contains('submenu-open');
+
+                // Close all other submenus first
+                document.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('submenu-open'));
+
+                // Toggle the clicked one
+                if (!isOpen) {
+                    item.classList.add('submenu-open');
+
+                    // Trigger mouseenter logic to ensure data is loaded for the submenu
+                    const mouseEvent = new MouseEvent('mouseenter');
+                    item.dispatchEvent(mouseEvent);
+                }
+
+                return;
+            }
+
             // Only handle direct clicks on the item, not submenu items
             if (e.target.classList.contains('submenu-item')) return;
 
@@ -638,6 +736,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper: Open details panel with detailed statistics
     async function openDetailsPanel(properties) {
         console.log('🔍 Opening panel for zone:', properties.zone, 'ID:', properties.id);
+
+        hoverTooltip.classList.remove('visible'); // Defensively clear any tooltips
 
         // Close borough panel when opening zone details
         boroughPanel.classList.remove('open');
@@ -817,14 +917,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Helper: Open borough details panel
     async function openBoroughPanel(boroughName) {
-        if (!boroughName || boroughName === 'all') {
-            boroughPanel.classList.remove('open');
-            return;
-        }
-
-        console.log('🏛️ Opening borough panel for:', boroughName);
+        const isCitywide = !boroughName || boroughName === 'all';
+        const displayName = isCitywide ? 'Citywide' : boroughName;
+        const fetchName = isCitywide ? 'all' : boroughName;
+        console.log('🏛️ Opening analytics panel for:', displayName);
         const panelContent = document.getElementById('boroughPanelContent');
-        document.getElementById('panelBoroughName').textContent = `${boroughName} Analysis`;
+        document.getElementById('panelBoroughName').textContent = `${displayName} Analysis`;
+
+        // Reset highlight state when panel changes
+        isUnderservedHighlighted = false;
 
         // Close zone details panel when opening borough stats
         detailsPanel.classList.remove('open');
@@ -833,7 +934,7 @@ document.addEventListener('DOMContentLoaded', () => {
         panelContent.innerHTML = `
             <div class="loading-stats">
                 <div class="spinner" style="width: 30px; height: 30px;"></div>
-                <p>Aggregating data for ${boroughName}...</p>
+                <p>Aggregating data for ${displayName}...</p>
             </div>
         `;
 
@@ -842,7 +943,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-            const url = `${API_BASE}/boroughs/${boroughName}/stats?start_date=${startDate}&end_date=${endDate}`;
+            const url = `${API_BASE}/boroughs/${fetchName}/stats?start_date=${startDate}&end_date=${endDate}`;
 
             const resp = await fetch(url);
             if (!resp.ok) throw new Error('API Failure');
@@ -911,7 +1012,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (underservedRow && stats.underservedCount > 0) {
                 const ids = stats.underservedZones.map(z => z.id);
                 underservedRow.addEventListener('click', () => {
-                    highlightBoroughZones(boroughName, ids);
+                    if (isUnderservedHighlighted) {
+                        // Toggle OFF: Clear highlights by passing empty IDs
+                        highlightBoroughZones(isCitywide ? 'all' : boroughName, []);
+                        isUnderservedHighlighted = false;
+                        underservedRow.style.backgroundColor = ''; // Remove highlight indicators if any
+                    } else {
+                        // Toggle ON: Apply highlight
+                        highlightBoroughZones(isCitywide ? 'all' : boroughName, ids, '#b01f02');
+                        isUnderservedHighlighted = true;
+                        underservedRow.style.backgroundColor = 'rgba(176, 31, 2, 0.2)'; // Visual feedback on row
+                    }
                 });
             }
         } catch (err) {
@@ -934,7 +1045,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const borough = layer.feature.properties.borough;
             const zoneId = layer.feature.properties.id;
 
-            if (borough === boroughName) {
+            const isScopeMatch = boroughName === 'all' || borough === boroughName;
+
+            if (isScopeMatch) {
                 if (specialIds.includes(zoneId)) {
                     layer.setStyle({
                         weight: 4,
@@ -1000,12 +1113,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const summaryGrid = document.getElementById('reportSummary');
             const metrics = [
                 { label: 'Total Trips', val: data.summary.totalTrips.toLocaleString() },
+                { label: 'Total Passengers', val: data.summary.totalPassengers.toLocaleString() },
                 { label: 'Revenue', val: `$${data.summary.totalRevenue.toLocaleString()}` },
                 { label: 'Avg Speed', val: `${data.summary.avgSpeed} MPH` },
                 { label: 'Avg Distance', val: `${data.summary.avgDistance} MI` },
                 { label: 'Detected Noise', val: data.summary.totalAnomalies.toLocaleString() },
                 { label: 'Health Score', val: `${data.summary.systemHealth}%` },
-                { label: 'Choke Points', val: data.summary.activeChokePoints }
             ];
 
             if (data.metadata.isZoneReport) {
@@ -1045,6 +1158,45 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${z.speed} MPH</td>
                 </tr>
             `).join('');
+
+            // Populate Rush Hour
+            const rushHourGrid = document.getElementById('reportRushHour');
+            const rh = data.rushHour;
+            const startHour = rh.hour.toString().padStart(2, '0') + ":00";
+            const endHour = ((rh.hour + 1) % 24).toString().padStart(2, '0') + ":00";
+
+            rushHourGrid.innerHTML = `
+                <div class="report-stat-card">
+                    <small>Peak Period</small>
+                    <strong>${startHour} - ${endHour}</strong>
+                </div>
+                <div class="report-stat-card">
+                    <small>Peak Throughput</small>
+                    <strong>${rh.trips.toLocaleString()} trips/hr</strong>
+                </div>
+                <div class="report-stat-card">
+                    <small>Peak Avg Speed</small>
+                    <strong>${rh.avgSpeed} MPH</strong>
+                </div>
+            `;
+
+            // Conditional Congestion Alert (Citywide Only)
+            const congestionAlert = document.getElementById('reportCongestionAlert');
+            if (data.metadata.isCitywide && rh.congestionImpact !== null) {
+                const color = rh.congestionImpact < -15 ? "#cf222e" : "#f0883e";
+                const label = rh.congestionImpact < -15 ? "CRITICAL CONGESTION" : "HEAVY TRAFFIC";
+                congestionAlert.innerHTML = `
+                    <div class="report-stat-card" style="border-left: 4px solid ${color};">
+                        <strong style="color: ${color};">${label}</strong>
+                        <p style="margin:0; font-size:0.85rem; color:#57606a;">
+                            Peak mobility speed is <strong>${Math.abs(rh.congestionImpact)}% lower</strong> than the daily average. 
+                            Infrastructure pressure is concentrated in this window.
+                        </p>
+                    </div>
+                `;
+            } else {
+                congestionAlert.innerHTML = "";
+            }
 
             // Populate Gaps (Use full list if borough metadata for better detail)
             const gapsList = document.getElementById('reportGaps');
@@ -1092,6 +1244,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 noiseList.innerHTML = "<p>No significant data noise detected in this scope.</p>";
             }
 
+            // Render Rush Hour Trend Chart
+            renderReportChart(data.rushHour);
+
             // Show Modal
             reportModal.classList.add('open');
 
@@ -1119,4 +1274,51 @@ document.addEventListener('DOMContentLoaded', () => {
         updateMapFilter();
     });
     loadChart();
+    function renderReportChart(rushHourData) {
+        const ctx = document.getElementById('reportRushHourChart').getContext('2d');
+
+        if (reportChartInstance) {
+            reportChartInstance.destroy();
+        }
+
+        const trend = rushHourData.trend;
+        const hours = Object.keys(trend);
+        const counts = Object.values(trend).map(d => d.trips);
+        const peakHour = rushHourData.hour;
+
+        reportChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: hours.map(h => `${h}:00`),
+                datasets: [{
+                    label: 'Hourly Throughput',
+                    data: counts,
+                    backgroundColor: hours.map(h => parseInt(h) === peakHour ? '#f0883e' : '#e1e4e8'),
+                    borderColor: hours.map(h => parseInt(h) === peakHour ? '#f0883e' : '#d1d5da'),
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false, // Disable for cleaner PDF exports
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: false } // Static view for report
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#f0f0f0' },
+                        ticks: { color: '#57606a', font: { size: 10 } }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#57606a', font: { size: 10 } }
+                    }
+                }
+            }
+        });
+    }
 });
