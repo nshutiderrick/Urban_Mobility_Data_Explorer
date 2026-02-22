@@ -1,6 +1,7 @@
 ﻿database/**/*.db
 data/processed/
 data/logs/
+data/
 database/taxi_data.db*
 __pycache__/
 *.pyc
