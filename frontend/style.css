@@ -363,7 +363,7 @@ select {
     z-index: 5000;
     display: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    /* Submenus are now always inline, so we can safely scroll the whole menu */
+    /* Mobile: scroll the whole list inline */
     max-height: 80vh;
     overflow-y: auto;
     scrollbar-width: thin;
@@ -1626,4 +1626,127 @@ body.focus-mode .filter-panel .button-group {
 body.focus-mode .filter-panel .button-group button {
     width: 100%;
     justify-content: center;
+}
+
+/* ==========================================
+   LARGE SCREEN — Fly-out Submenu Override
+   Applies only on viewports wider than 768px.
+   Mobile accordion design is untouched.
+   ========================================== */
+@media (min-width: 769px) {
+
+    /* Allow the fly-out to escape the dropdown boundary */
+    .dropdown-menu {
+        overflow: visible;
+        max-height: none;
+        min-width: 250px;
+        /* Increased dropdown width */
+    }
+
+    .dropdown-trigger {
+        min-width: 200px;
+        /* Wider trigger on desktop */
+    }
+
+    /* Scroll the borough list itself within a fixed max-height instead */
+
+    /* Borough item: anchor for the absolute fly-out */
+    .dropdown-item.has-submenu {
+        position: relative;
+        /* Don't wrap to column on desktop */
+        flex-wrap: nowrap;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    /* Even when open, stay in row layout on desktop */
+    .dropdown-item.submenu-open,
+    .dropdown-item.has-submenu:hover {
+        /* Added hover state */
+        flex-direction: row;
+        align-items: center;
+        padding-bottom: 0.75rem;
+        /* restore normal padding */
+    }
+
+    /* Show submenu on hover for desktop */
+    .dropdown-item.has-submenu:hover .submenu {
+        display: block;
+    }
+
+    /* Fly-out panel — positioned to the right of the dropdown */
+    .submenu {
+        position: absolute;
+        left: 100%;
+        /* Snap precisely to the edge */
+        top: -1px;
+        width: 260px;
+        /* Slightly wider fly-out */
+        min-width: 220px;
+        max-width: 320px;
+        max-height: 400px;
+        /* More room for zones */
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        background: #1c2128;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        z-index: 6000;
+        padding: 4px 0;
+        /* Subtle top accent line */
+        border-top: 2px solid var(--accent-color);
+    }
+
+    /* Arrow pointing right on desktop (→) */
+    .submenu-toggle svg {
+        transform: rotate(0deg);
+    }
+
+    /* When open, arrow still points right — submenu flies out sideways */
+    .submenu-open .submenu-toggle svg {
+        transform: rotate(0deg);
+    }
+
+    /* Zone items inside fly-out — clean, full-width look */
+    .submenu-item {
+        padding: 0.6rem 1rem;
+        padding-left: 1rem;
+        /* override the indentation from mobile */
+        font-size: 0.875rem;
+        color: var(--text-color);
+        border-bottom: 1px solid rgba(48, 54, 61, 0.7);
+        transition: background 0.15s ease, color 0.15s ease, padding-left 0.15s ease;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .submenu-item:last-child {
+        border-bottom: none;
+    }
+
+    .submenu-item:hover {
+        background: rgba(88, 166, 255, 0.12);
+        color: var(--accent-color);
+        padding-left: 1.3rem;
+        /* subtle slide-in effect on hover */
+    }
+
+    /* A small header label at the top of the fly-out for context */
+    .submenu::before {
+        content: 'Zones';
+        display: block;
+        padding: 0.4rem 1rem 0.3rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--accent-color);
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 2px;
+        pointer-events: none;
+        user-select: none;
+    }
 }

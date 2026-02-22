@@ -1,9 +1,11 @@
-﻿database/*.db
-data/*.csv
-data/taxi_zones/
+﻿database/**/*.db
+data/processed/
+data/logs/
+database/taxi_data.db*
 __pycache__/
 *.pyc
 .env
 .DS_Store
 detail.txt
 Urban_Mobility_Data_Explorer/
+.venv/

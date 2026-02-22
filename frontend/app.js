@@ -777,7 +777,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (startDate) apiUrl.searchParams.append('start_date', startDate);
             if (endDate) apiUrl.searchParams.append('end_date', endDate);
 
-            console.log('📡 Fetching stats from:', apiUrl.toString());
+            console.log('Fetching stats from:', apiUrl.toString());
 
             const resp = await fetch(apiUrl);
             if (!resp.ok) {
@@ -785,7 +785,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const stats = await resp.json();
-            console.log('✅ Received stats:', stats);
+            console.log('Received stats:', stats);
 
             // Update panel with detailed information
             panelContent.innerHTML = `
@@ -858,19 +858,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     <h4>Coverage Analysis</h4>
                     <p class="info-text">
                         ${stats.coverageRatio > 2
-                    ? `⚠️ This zone receives ${stats.coverageRatio}x more drop-offs than pick-ups, indicating potential service gaps.`
+                    ? ` This zone receives ${stats.coverageRatio}x more drop-offs than pick-ups, indicating potential service gaps.`
                     : stats.coverageRatio < 0.5
-                        ? `📍 This zone has ${(1 / stats.coverageRatio).toFixed(1)}x more pick-ups than drop-offs, suggesting it's primarily a departure point.`
-                        : `✓ This zone has balanced pick-up and drop-off activity (ratio: ${stats.coverageRatio}).`
+                        ? ` This zone has ${(1 / stats.coverageRatio).toFixed(1)}x more pick-ups than drop-offs, suggesting it's primarily a departure point.`
+                        : ` This zone has balanced pick-up and drop-off activity (ratio: ${stats.coverageRatio}).`
                 }
                     </p>
                 </div>
             `;
 
-            console.log('✅ Panel updated successfully for', stats.zone);
+            console.log('Panel updated successfully for', stats.zone);
 
         } catch (err) {
-            console.error('❌ Error fetching zone stats:', err);
+            console.error('Error fetching zone stats:', err);
             panelContent.innerHTML = `
                 <div class="panel-section">
                     <h4>Location</h4>

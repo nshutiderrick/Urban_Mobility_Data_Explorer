@@ -7,6 +7,22 @@ import os
 import sys
 import json
 import sqlite3
+import logging
+
+# Configure Logging
+log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'logs')
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(log_dir, 'app.log')),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("NYC-Taxi-API")
 
 # Add project root to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -58,7 +74,7 @@ def signup():
     hashed_password = AuthLogic.hash_password(password)
     
     try:
-        conn = sqlite3.connect(get_db_path())
+        conn = sqlite3.connect(get_db_path(), timeout=30)
         cur = conn.cursor()
         cur.execute("INSERT INTO users (email, password_hash) VALUES (?, ?)", (email, hashed_password))
         conn.commit()
@@ -76,7 +92,7 @@ def login():
     password = data.get('password')
 
     try:
-        conn = sqlite3.connect(get_db_path())
+        conn = sqlite3.connect(get_db_path(), timeout=30)
         cur = conn.cursor()
         cur.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
         row = cur.fetchone()
@@ -97,7 +113,7 @@ def health_check():
 
 @app.before_request
 def log_request():
-    print(f"📡 API Request: {request.method} {request.path} {request.args}")
+    logger.info(f"Request: {request.method} {request.path} {request.args}")
 
 @app.route('/api/trips/summary', methods=['GET'])
 def get_trip_summary():
@@ -216,7 +232,7 @@ def get_zones():
         db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'database', 'taxi_data.db')
         dal = TripDAL(db_path)
         
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
         cur = conn.cursor()
         cur.execute("SELECT location_id, borough, zone, geojson FROM taxi_zones")
         rows = cur.fetchall()
@@ -238,7 +254,7 @@ def get_zone_stats(zone_id):
     """Returns detailed statistics for a specific zone"""
     try:
         db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'database', 'taxi_data.db')
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
         cur = conn.cursor()
         
         # Get zone info
@@ -355,4 +371,5 @@ def get_revenue():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
+    logger.info("Starting NYC Taxi API Server...")
     app.run(debug=True, host='0.0.0.0', port=5000)

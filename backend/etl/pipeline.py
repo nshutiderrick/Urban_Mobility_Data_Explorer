@@ -3,6 +3,22 @@
 
 import os
 import sys
+import logging
+
+# Configure Logging for ETL
+log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'logs')
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(log_dir, 'etl.log')),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("ETL-Pipeline")
 
 # Add project root to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +38,7 @@ def run_pipeline():
     dal = TripDAL(db_path)
     
     # 2. Process Zones (Dimension Table)
-    print("--- Processing Taxi Zones ---")
+    logger.info("--- Processing Taxi Zones ---")
     zone_loader = ShapefileLoader(shp_path)
     zones = zone_loader.load()
     if zones:
@@ -30,7 +46,7 @@ def run_pipeline():
         dal.insert_zones(clean_zones)
     
     # 3. Process Trip Data (Fact Table) in chunks to avoid memory issues
-    print("\n--- Processing Trip Data ---")
+    logger.info("--- Processing Trip Data ---")
     trip_loader = CSVLoader(raw_data_path)
     # We'll process a small sample for verification first, or just use chunks
     chunk_size = 100000 
@@ -38,7 +54,7 @@ def run_pipeline():
     try:
         chunks = trip_loader.load(chunksize=chunk_size)
         for i, chunk in enumerate(chunks):
-            print(f"Processing chunk {i+1}...")
+            logger.info(f"Processing chunk {i+1}...")
             
             # Cleaning
             clean_chunk = DataCleaner.clean_trip_data(chunk)
@@ -58,9 +74,9 @@ def run_pipeline():
             if i >= 9: 
                 break
                 
-        print("\n✅ ETL Pipeline execution complete.")
+        logger.info("ETL Pipeline execution complete.")
     except Exception as e:
-        print(f"Pipeline error: {e}")
+        logger.error(f"Pipeline error: {e}")
 
 if __name__ == "__main__":
     run_pipeline()

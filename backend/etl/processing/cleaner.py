@@ -3,6 +3,9 @@
 
 import pandas as pd
 import numpy as np
+import logging
+
+logger = logging.getLogger("DataCleaner")
 
 class DataCleaner:
     """Handles data quality and cleaning steps"""
@@ -33,7 +36,7 @@ class DataCleaner:
         # For this project, we'll drop rows with missing critical IDs
         df = df.dropna(subset=['PULocationID', 'DOLocationID', 'tpep_pickup_datetime'])
         
-        print(f"Cleaning complete. Reduced rows from {initial_count} to {len(df)}.")
+        logger.info(f"Cleaning complete. Reduced rows from {initial_count} to {len(df)}.")
         return df
 
     @staticmethod

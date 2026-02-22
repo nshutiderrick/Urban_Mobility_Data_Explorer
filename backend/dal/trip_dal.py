@@ -13,7 +13,7 @@ class TripDAL:
 
     def insert_trips(self, trips_df):
         """Efficiently inserts trip data into the database using bulk operations"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         try:
             df_to_save = trips_df.copy()
             
@@ -59,7 +59,7 @@ class TripDAL:
 
     def insert_zones(self, zones_data):
         """Inserts taxi zone data using INSERT OR IGNORE to avoid duplicates"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         try:
             cur = conn.cursor()
             for zone in zones_data:
